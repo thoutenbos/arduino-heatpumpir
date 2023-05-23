@@ -47,6 +47,17 @@ GreeYACHeatpumpIR::GreeYACHeatpumpIR() : GreeHeatpumpIR()
   greeModel = GREE_YAC;
 }
 
+// Support for YAP1F7 remote
+GreeYAPHeatpumpIR::GreeYAPHeatpumpIR() : GreeHeatpumpIR()
+{
+  static const char model[] PROGMEM = "greeyap";
+  static const char info[]  PROGMEM = "{\"mdl\":\"greeyap\",\"dn\":\"Gree YAP\",\"mT\":16,\"xT\":30,\"fs\":3}";
+
+  _model = model;
+  _info = info;
+  greeModel = GREE_YAP;
+}
+
 void GreeHeatpumpIR::send(IRSender& IR, uint8_t powerModeCmd, uint8_t operatingModeCmd, uint8_t fanSpeedCmd, uint8_t temperatureCmd, uint8_t swingVCmd, uint8_t swingHCmd)
 {
   send(IR, powerModeCmd, operatingModeCmd, fanSpeedCmd, temperatureCmd, swingVCmd, swingHCmd, false);
@@ -54,10 +65,15 @@ void GreeHeatpumpIR::send(IRSender& IR, uint8_t powerModeCmd, uint8_t operatingM
 
 void GreeHeatpumpIR::send(IRSender& IR, uint8_t powerModeCmd, uint8_t operatingModeCmd, uint8_t fanSpeedCmd, uint8_t temperatureCmd, uint8_t swingVCmd, uint8_t swingHCmd, bool turboMode)
 {
-  send(IR, powerModeCmd, operatingModeCmd, fanSpeedCmd, temperatureCmd, swingVCmd, swingHCmd, false, turboMode);
+  send(IR, powerModeCmd, operatingModeCmd, fanSpeedCmd, temperatureCmd, swingVCmd, swingHCmd, turboMode, false);
 }
 
 void GreeHeatpumpIR::send(IRSender& IR, uint8_t powerModeCmd, uint8_t operatingModeCmd, uint8_t fanSpeedCmd, uint8_t temperatureCmd, uint8_t swingVCmd, uint8_t swingHCmd, bool turboMode, bool iFeelMode)
+{
+  send(IR, powerModeCmd, operatingModeCmd, fanSpeedCmd, temperatureCmd, swingVCmd, swingHCmd, turboMode, false, false, false);
+}
+
+void GreeHeatpumpIR::send(IRSender& IR, uint8_t powerModeCmd, uint8_t operatingModeCmd, uint8_t fanSpeedCmd, uint8_t temperatureCmd, uint8_t swingVCmd, uint8_t swingHCmd, bool turboMode, bool iFeelMode, bool enableWiFi, bool sthtMode)
 {
   (void)swingVCmd;
   (void)swingHCmd;
@@ -143,7 +159,7 @@ void GreeHeatpumpIR::send(IRSender& IR, uint8_t powerModeCmd, uint8_t operatingM
     }
   }
 
-  if (greeModel == GREE_YAA || greeModel == GREE_YAC)
+  if (greeModel == GREE_YAA || greeModel == GREE_YAC || greeModel == GREE_YAP)
   {
     switch (swingVCmd)
     {
@@ -170,11 +186,13 @@ void GreeHeatpumpIR::send(IRSender& IR, uint8_t powerModeCmd, uint8_t operatingM
         break;
     }
 
-    if (greeModel == GREE_YAC)
+    if (greeModel == GREE_YAC || greeModel == GREE_YAP)
     {
       switch (swingHCmd)
       {
         case HDIR_AUTO:
+		  swingH = GREE_HDIR_AUTO;
+		  break;
         case HDIR_SWING:
           swingH = GREE_HDIR_SWING;
           break;
@@ -203,18 +221,16 @@ void GreeHeatpumpIR::send(IRSender& IR, uint8_t powerModeCmd, uint8_t operatingM
     temperature = temperatureCmd - 16;
   }
 
-  sendGree(IR, powerMode, operatingMode, fanSpeed, temperature, swingV, swingH, turboMode, iFeelMode);
+  sendGree(IR, powerMode, operatingMode, fanSpeed, temperature, swingV, swingH, turboMode, iFeelMode, enableWiFi, sthtMode);
 }
 
 // Send the Gree code
-void GreeHeatpumpIR::sendGree(IRSender& IR, uint8_t powerMode, uint8_t operatingMode, uint8_t fanSpeed, uint8_t temperature, uint8_t swingV, uint8_t swingH, bool turboMode, bool iFeelMode)
+void GreeHeatpumpIR::sendGree(IRSender& IR, uint8_t powerMode, uint8_t operatingMode, uint8_t fanSpeed, uint8_t temperature, uint8_t swingV, uint8_t swingH, bool turboMode, bool iFeelMode, bool enableWiFi, bool sthtMode)
 {
   (void)swingH;
 
-  uint8_t GreeTemplate[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x20, 0x00, 0x00 };
+  uint8_t GreeTemplate[] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x2C, 0x00, 0x00 };
   //                            0     1     2     3     4     5     6     7
-
-  uint8_t i;
 
   // Set the Fan speed, operating mode and power state
   GreeTemplate[0] = fanSpeed | operatingMode | powerMode;
@@ -236,7 +252,7 @@ void GreeHeatpumpIR::sendGree(IRSender& IR, uint8_t powerMode, uint8_t operating
       GreeTemplate[5] |= (1 << 3);
     }
   }
-  if (greeModel == GREE_YAA || greeModel == GREE_YAC)
+  if (greeModel == GREE_YAA || greeModel == GREE_YAC || greeModel == GREE_YAP)
   {
 //    GreeTemplate[2] = 0xE0; // bits 0..3 always 0000, bits 4..7 TURBO,LIGHT,HEALTH,X-FAN
     GreeTemplate[2] = 0x20; // bits 0..3 always 0000, bits 4..7 TURBO,LIGHT,HEALTH,X-FAN
@@ -247,39 +263,102 @@ void GreeHeatpumpIR::sendGree(IRSender& IR, uint8_t powerMode, uint8_t operating
     {
       GreeTemplate[2] |= (1 << 4); // Set bit 4 (TURBO)
     }
-    if (swingV == GREE_VDIR_SWING)
+
+    if (greeModel == GREE_YAA || greeModel == GREE_YAC)
     {
-      GreeTemplate[0] |= (1 << 6); // Enable swing by setting bit 6
+      if (swingV == GREE_VDIR_SWING)
+      {
+        GreeTemplate[0] |= (1 << 6); // Enable swing by setting bit 6
+      }
+      else if (swingV != GREE_VDIR_AUTO)
+      {
+        GreeTemplate[5] = swingV;
+      }
     }
-    else if (swingV != GREE_VDIR_AUTO)
+
+    if (greeModel == GREE_YAP)
     {
-      GreeTemplate[5] = swingV;
+      GreeTemplate[4] = swingV;
+      GreeTemplate[4] |= (swingH << 4);
+      GreeTemplate[5] = 0x82;
+      GreeTemplate[6] = 0x00;
+
+      if (iFeelMode)
+      {
+        GreeTemplate[5] |= (1 << 2);
+      }
+
+      if (enableWiFi)
+      {
+        GreeTemplate[5] |= (1 << 6);
+      }
+
+      if (sthtMode)
+      {
+        GreeTemplate[7] |= (1 << 2);
+      }
     }
   }
 
-  // Calculate the checksum
-  if (greeModel == GREE_YAN)
+  sendGreeIR(IR, GreeTemplate, false);
+
+  if (greeModel == GREE_YAP)
   {
-    GreeTemplate[7] = (
-      (GreeTemplate[0] << 4) +
-      (GreeTemplate[1] << 4) +
-      0xC0);
+    GreeTemplate[3] = 0x70;
+    GreeTemplate[4] = 0x00;
+    GreeTemplate[5] = 0x00;
+    GreeTemplate[6] = 0x00;
+    GreeTemplate[7] = 0x00;
+
+    sendGreeIR(IR, GreeTemplate, true);
+
+    GreeTemplate[0] = 0x00;
+    GreeTemplate[1] = 0x00;
+    GreeTemplate[2] = 0x00;
+    GreeTemplate[3] = 0xA0;
+    GreeTemplate[7] = 0xA0;
+
+    sendGreeIR(IR, GreeTemplate, true);
   }
-  else
+}
+
+void GreeHeatpumpIR::sendGreeIR(IRSender& IR, uint8_t GreeTemplate[], bool withSpace)
+{
+  uint8_t i;
+
+  if ((GreeTemplate[7] & 0xF0) == 0x00)
   {
-    GreeTemplate[7] = (((
-     (GreeTemplate[0] & 0x0F) +
-     (GreeTemplate[1] & 0x0F) +
-     (GreeTemplate[2] & 0x0F) +
-     (GreeTemplate[3] & 0x0F) +
-     ((GreeTemplate[5] & 0xF0) >> 4) +
-     ((GreeTemplate[6] & 0xF0) >> 4) +
-     ((GreeTemplate[7] & 0xF0) >> 4) +
-      0x0A) & 0x0F) << 4) | (GreeTemplate[7] & 0x0F);
+    // Calculate the checksum
+    if (greeModel == GREE_YAN)
+    {
+      GreeTemplate[7] = (
+        (GreeTemplate[0] << 4) +
+        (GreeTemplate[1] << 4) +
+        0xC0);
+    }
+    else
+    {
+      GreeTemplate[7] = (((
+       (GreeTemplate[0] & 0x0F) +
+       (GreeTemplate[1] & 0x0F) +
+       (GreeTemplate[2] & 0x0F) +
+       (GreeTemplate[3] & 0x0F) +
+       ((GreeTemplate[5] & 0xF0) >> 4) +
+       ((GreeTemplate[6] & 0xF0) >> 4) +
+       ((GreeTemplate[7] & 0xF0) >> 4) +
+        0x0A) & 0x0F) << 4) | (GreeTemplate[7] & 0x0F);
+    }
   }
 
   // 38 kHz PWM frequency
   IR.setFrequency(38);
+  
+  if (withSpace)
+  {
+    // Message space
+    IR.mark(GREE_AIRCON1_BIT_MARK);
+    IR.space(GREE_AIRCON1_MSG_SPACE);
+  }
 
   // Send Header mark
   IR.mark(GREE_AIRCON1_HDR_MARK);
@@ -304,7 +383,7 @@ void GreeHeatpumpIR::sendGree(IRSender& IR, uint8_t powerMode, uint8_t operating
   // Payload part #2
   for (i=4; i<8; i++) {
     IR.sendIRbyte(GreeTemplate[i], GREE_AIRCON1_BIT_MARK, GREE_AIRCON1_ZERO_SPACE, GREE_AIRCON1_ONE_SPACE);
-	}
+  }
 
   // End mark
   IR.mark(GREE_AIRCON1_BIT_MARK);
@@ -312,7 +391,7 @@ void GreeHeatpumpIR::sendGree(IRSender& IR, uint8_t powerMode, uint8_t operating
 }
 
 // Sends current sensed temperatures, YAC remotes/supporting units only
-void GreeYACHeatpumpIR::send(IRSender& IR, uint8_t currentTemperature)
+void GreeHeatpumpIR::send(IRSender& IR, uint8_t currentTemperature)
 {
   uint8_t GreeTemplate[] = { 0x00, 0x00 };
 

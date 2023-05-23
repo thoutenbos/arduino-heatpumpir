@@ -25,8 +25,8 @@ void IRSenderESP32::mark(int markLength)
   long beginning = micros();
   ledcWrite(_pwmChannel, 127);
   while((int)(micros() - beginning) < markLength);
-  gpio_reset_pin(static_cast<gpio_num_t>(_pin));
-  digitalWrite(_pin, LOW);
+  //gpio_reset_pin(static_cast<gpio_num_t>(_pin));
+  ledcDetachPin(_pin);
 }
 
 // Send an IR 'space' symbol, i.e. transmitter OFF
